@@ -1,0 +1,15 @@
+=== PLC Binding Affinity Model Results ===
+
+Training Data Results:
+MSE: 1.395689
+RMSE: 1.181393
+MAE: 0.921847
+R2: 0.819111
+PEARSON: 0.907990
+
+Test Data Results:
+MSE: 3.458248
+RMSE: 1.859637
+MAE: 1.476420
+R2: 0.512650
+PEARSON: 0.722066
