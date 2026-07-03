@@ -8,6 +8,8 @@ import h5py
 
 from sklearn.utils import shuffle
 import tensorflow as tf
+import tensorflow.compat.v1 as tf
+tf.disable_v2_behavior()
 
 from tfbio.data import Featurizer, make_grid, rotate
 import tfbio.net
@@ -24,6 +26,7 @@ sns.set_color_codes()
 color = {'training': 'b', 'validation': 'g', 'test': 'r'}
 
 import time
+import json
 timestamp = time.strftime('%Y-%m-%dT%H:%M:%S')
 
 
@@ -92,11 +95,27 @@ tr_group.add_argument('--num_epochs', default=20, type=int,
                       help='number of epochs')
 tr_group.add_argument('--num_checkpoints', dest='to_keep', default=10, type=int,
                       help='number of checkpoints to keep')
+tr_group.add_argument('--resume_dir', default=None,
+                      help='prefix of a previous run to resume from (e.g. ./plas7k_results/output-2026-...). '
+                           'Must point to a directory containing a resume_state.json file.')
 
 args = parser.parse_args()
 
-prefix = os.path.abspath(args.output_prefix) + '-' + timestamp
-logdir = os.path.join(os.path.abspath(args.log_dir), os.path.split(prefix)[1])
+# On resume, reuse the original run's prefix so checkpoints are written to the
+# same path and the saver can find them. Otherwise generate a fresh timestamped prefix.
+if args.resume_dir is not None:
+    resume_state_path = os.path.join(os.path.abspath(args.resume_dir), 'resume_state.json')
+    if not os.path.exists(resume_state_path):
+        raise IOError('--resume_dir specified but resume_state.json not found in: %s' % args.resume_dir)
+    with open(resume_state_path, 'r') as f:
+        resume_state = json.load(f)
+    prefix = resume_state['prefix']
+    logdir = resume_state['logdir']
+    print('*** RESUMING from epoch %d, prefix: %s ***' % (resume_state['next_epoch'], prefix), flush=True)
+else:
+    resume_state = None
+    prefix = os.path.abspath(args.output_prefix) + '-' + timestamp
+    logdir = os.path.join(os.path.abspath(args.log_dir), os.path.split(prefix)[1])
 
 featurizer = Featurizer()
 
@@ -262,28 +281,43 @@ train_sample = min(args.batch_size, len(features['training']))
 
 print('\n---- TRAINING ----\n', flush=True)
 with tf.Session(graph=graph) as session:
-    session.run(tf.global_variables_initializer())
 
-    summary_imp = tf.Summary()
-    feature_imp = session.run(feature_importance)
-    image = tfbio.net.feature_importance_plot(feature_imp)
-    summary_imp.value.add(tag='feature_importance_%s' % 0, image=image)
-    train_writer.add_summary(summary_imp, 0)
+    if resume_state is not None:
+        # Restore weights from the last saved checkpoint of the previous run
+        saver.restore(session, resume_state['last_checkpoint'])
+        start_epoch = resume_state['next_epoch']
+        err = resume_state['err']
+        # checkpoint variable must exist for the final-predictions block below
+        checkpoint = resume_state['last_checkpoint']
+        print('Restored checkpoint: %s' % checkpoint, flush=True)
+        print('Resuming from epoch %d, best err so far: %s' % (start_epoch, err), flush=True)
+    else:
+        session.run(tf.global_variables_initializer())
+        start_epoch = 0
+        err = float('inf')
 
-    stats_net = session.run(
-        net_summaries,
-        feed_dict={x: get_batch('training', range(train_sample)),
-                   t: affinity['training'][:train_sample],
-                   keep_prob: 1.0}
-    )
+        summary_imp = tf.Summary()
+        feature_imp = session.run(feature_importance)
+        image = tfbio.net.feature_importance_plot(feature_imp)
+        summary_imp.value.add(tag='feature_importance_%s' % 0, image=image)
+        train_writer.add_summary(summary_imp, 0)
 
-    train_writer.add_summary(stats_net, 0)
+        stats_net = session.run(
+            net_summaries,
+            feed_dict={x: get_batch('training', range(train_sample)),
+                       t: affinity['training'][:train_sample],
+                       keep_prob: 1.0}
+        )
+        train_writer.add_summary(stats_net, 0)
 
-    for epoch in range(args.num_epochs):
+    for epoch in range(start_epoch, args.num_epochs):
         for rotation in args.rotations:
             print('rotation', rotation+1, flush=True)
             # TRAIN #
-            x_t, y_t = shuffle(range(ds_sizes['training']), affinity['training'])
+            # Use a per-epoch seed so the shuffle order is identical whether
+            # this is a fresh run or a resumed one. This preserves reproducibility.
+            x_t, y_t = shuffle(range(ds_sizes['training']), affinity['training'],
+                                random_state=epoch)
 
             for bi, bj in batches('training'):
                 session.run(train, feed_dict={x: get_batch('training',
@@ -301,15 +335,6 @@ with tf.Session(graph=graph) as session:
 
             train_writer.add_summary(stats_t, global_step.eval())
             train_writer.add_summary(stats_net, global_step.eval())
-
-#             stats_v = session.run(
-#                 training_summaries,
-#                 feed_dict={x: get_batch('validation', range(val_sample)),
-#                            t: affinity['validation'][:val_sample],
-#                            keep_prob: 1.0}
-#             )
-
-#             val_writer.add_summary(stats_v, global_step.eval())
 
         # SAVE STATS - per epoch #
         # training set error
@@ -342,22 +367,8 @@ with tf.Session(graph=graph) as session:
 
         # validation set error
         mse_v = 1000
-#         for bi, bj in batches('validation'):
-#             weight = (bj - bi) / ds_sizes['validation']
-#             mse_v += weight * session.run(
-#                 mse,
-#                 feed_dict={x: get_batch('validation', range(bi, bj)),
-#                            t: affinity['validation'][bi:bj],
-#                            keep_prob: 1.0}
-#             )
-
-#         summary_mse = tf.Summary()
-#         summary_mse.value.add(tag='mse_all', simple_value=mse_v)
-#         val_writer.add_summary(summary_mse, global_step.eval())
 
         # SAVE MODEL #
-        # print('epoch: %s train error: %s, validation error: %s'
-        #       % (epoch, mse_t, mse_v), flush=True)
         print('Epoch: %s Training Error: %s'
               % (epoch+1, mse_t), flush=True)
 
@@ -371,6 +382,19 @@ with tf.Session(graph=graph) as session:
             image = tfbio.net.feature_importance_plot(feature_imp)
             summary_imp.value.add(tag='feature_importance', image=image)
             train_writer.add_summary(summary_imp, global_step.eval())
+
+        # Write resume state after every epoch so we can restart from here.
+        # next_epoch is epoch+1 so on resume we skip this completed epoch.
+        resume_state_path = os.path.join(os.path.dirname(prefix), 'resume_state.json')
+        with open(resume_state_path, 'w') as f:
+            json.dump({
+                'prefix': prefix,
+                'logdir': logdir,
+                'next_epoch': epoch + 1,
+                'last_checkpoint': checkpoint,
+                'err': float(err),
+            }, f, indent=2)
+        print('Resume state saved (next_epoch=%d)' % (epoch + 1), flush=True)
 
 
 # FINAL PREDICTIONS
