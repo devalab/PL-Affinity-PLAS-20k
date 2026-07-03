@@ -7,70 +7,11 @@
 ## Repository Overview
 
 This repository contains the code and workflows used in our study. The overall pipeline is divided into two major parts:
+This repository contains the code and workflows used in our study. The overall pipeline is divided into three major parts:
 
 1. **Training Pafnucy** on protein-ligand complexes (PLCs)  
-2. **Aggregation and analysis** of predicted values across multiple conformational frames of each PLC  
-
-[//]: # (The directory structure is as follows:)
-
-[//]: # ()
-[//]: # (```)
-
-[//]: # (.)
-
-[//]: # (├── aggregation-analysis)
-
-[//]: # (│   ├── final-analysis.ipynb)
-
-[//]: # (│   ├── neural-network-aggregation.py)
-
-[//]: # (│   ├── output-predictions.csv)
-
-[//]: # (│   └── results.csv)
-
-[//]: # (├── clustering)
-
-[//]: # (│   ├── cluster.py)
-
-[//]: # (│   ├── get_rmsd.sh)
-
-[//]: # (│   ├── list-pdbids.txt)
-
-[//]: # (│   ├── rmsd)
-
-[//]: # (│   │   └── rmsd_matrix_16pk.dat)
-
-[//]: # (│   ├── rmsd_matrix.tcl)
-
-[//]: # (│   └── selected_points_30.txt)
-
-[//]: # (├── final_experimental.csv)
-
-[//]: # (├── pafnucy)
-
-[//]: # (│   ├── plas20k_custom_hdf.py)
-
-[//]: # (│   └── training.py)
-
-[//]: # (├── plas20k)
-
-[//]: # (│   └── 16pk)
-
-[//]: # (│       ├── 16pk.l.frame_1.mol2)
-
-[//]: # (│       ├── 16pk.l.frame_200.mol2)
-
-[//]: # (│       ├── 16pk.l.frame_2.mol2)
-
-[//]: # (│       ├── 16pk.pw.frame_1.mol2)
-
-[//]: # (│       ├── 16pk.pw.frame_200.mol2)
-
-[//]: # (│       └── 16pk.pw.frame_2.mol2)
-
-[//]: # (└── README.md)
-
-[//]: # (```)
+2. **Training GIGN** as an alternative graph neural network model on the same PLAS-20k data  
+3. **Aggregation and analysis** of predicted values across multiple conformational frames of each PLC
 
 ---
 
@@ -139,7 +80,44 @@ python3 ./pafnucy/training.py \
 
 ---
 
-## 4. Aggregation & Analysis
+## 4. Training GIGN (Alternative Model)
+
+In addition to Pafnucy, this repository includes a workflow for **GIGN** (Graph Interaction Network), a graph neural network for protein-ligand binding affinity prediction. The original GIGN code is available at: [https://github.com/guaguabujianle/GIGN.git](https://github.com/guaguabujianle/GIGN.git)
+The adapted pipeline lives in the `gign/` directory and uses the same PLAS-20k structures and frame-selection strategies (`uniform` or `clustered`) as Pafnucy.
+
+### Prerequisites
+
+- PLC structure files in `plas20k/`  
+- Labels and train/test split from `aggregation-analysis/results.csv` (columns: `Pdbid_Frame`, `Real`, `Set`)  
+- For clustered frame selection: clustering output in `clustering/` (see Section 2)  
+
+### Environment
+
+Install dependencies from `gign/requirements.txt` in a separate conda environment before running.
+
+### Running the pipeline
+
+Edit `STRATEGY` and `N_FRAMES` at the top of the script, then:
+
+```bash
+cd gign/
+bash run_gign_experiment.sh
+```
+
+Or run the four steps individually from `gign/`:
+
+```bash
+python step1_build_gign_data.py --strategy uniform --n_frames 30
+python step2_preprocessing_plas.py --exp uniform_30 --distance 5 --workers 8
+python step3_build_graphs_plas.py --exp uniform_30 --distance 5 --workers 8
+python step4_train_plas.py --exp uniform_30 --epochs 600 --patience 100 --bs 128 --resume
+```
+
+Intermediate data is written to `gign/data/{strategy}_{n_frames}/`. Training outputs are saved to `gign/runs_gign_plas/{strategy}_{n_frames}/`.
+
+---
+
+## 5. Aggregation & Analysis
 
 All aggregation and downstream analysis are in the `aggregation-analysis/` directory.  
 
@@ -165,7 +143,7 @@ All aggregation and downstream analysis are in the `aggregation-analysis/` direc
 
 ---
 
-## 5. Example Files
+## 6. Example Files
 
 - **`plas20k/`** → Example PLC frames in `.mol2` format  
 - **`clustering/rmsd/`** → Example RMSD matrix file  
@@ -178,7 +156,7 @@ All aggregation and downstream analysis are in the `aggregation-analysis/` direc
 We provide two conda environment files to set up the required dependencies:
 
 - **`train_env.yml`** → Environment for the **training** part (`pafnucy/` and `clustering/`)  
-- **`aggregate_env.yml`** → Environment for the **aggregation and analysis** part (`aggregation-analysis/`)  
+- **`aggregate_env.yml`** → Environment for the **aggregation and analysis** part (`aggregation-analysis/`)
 
 To create the environments:
 
