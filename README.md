@@ -173,17 +173,16 @@ conda activate aggregate_env
 
 ---
 
-[//]: # (## Citation)
+## Citation
 
-[//]: # ()
-[//]: # (If you use this code or dataset, please cite:)
+If you use this code, methodology, or dataset in your research, please cite our paper:
 
-[//]: # ()
-[//]: # (```)
-
-[//]: # ([Paper citation, once available])
-
-[//]: # (```)
-
-[//]: # ()
-[//]: # (---)
+```bibtex
+@article{Agrawal2026,
+  author    = {Agrawal, Prakul and Chatterjee, Prathit and Priyakumar, U. Deva},
+  title     = {Synthetic data for more accurate deep learning models in molecular science: a test case of protein-ligand binding affinity prediction},
+  journal   = {Journal of Cheminformatics},
+  year      = {2026},
+  doi       = {10.1186/s13321-026-01279-2},
+  url       = {[https://doi.org/10.1186/s13321-026-01279-2](https://doi.org/10.1186/s13321-026-01279-2)}
+}
